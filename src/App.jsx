@@ -253,12 +253,19 @@ export default function BcarExpress() {
   };
 
   const doRegister = async () => {
-    if (!regForm.nome||!regForm.telefone||!regForm.senha) { setRegErr("Preencha campos obrigatórios"); return; }
+    if (!regForm.nome||!regForm.telefone||!regForm.senha) { setRegErr("Preencha nome, telefone e senha"); return; }
     if (regForm.senha !== regForm.confirma) { setRegErr("Senhas não coincidem"); return; }
-    if (users.find(u => u.telefone === regForm.telefone)) { setRegErr("Telefone já cadastrado"); return; }
-    await push(ref(db,"users"), { ...regForm, status:"pendente", confirma:undefined });
-    setRegErr(""); setRegForm({ nome:"",sobrenome:"",telefone:"",senha:"",confirma:"",role:"mecanico",oficina:"",endereco:"",veiculo:"",placa:"" });
-    setLoginTab("entrar"); showToast("Cadastro enviado! Aguarde aprovação.");
+    if (regForm.senha.length < 4) { setRegErr("Senha deve ter ao menos 4 caracteres"); return; }
+    setRegErr("");
+    try {
+      const { confirma, ...dados } = regForm;
+      await push(ref(db,"users"), { ...dados, status:"pendente" });
+      setRegForm({ nome:"",sobrenome:"",telefone:"",senha:"",confirma:"",role:"mecanico",oficina:"",endereco:"",veiculo:"",placa:"" });
+      setLoginTab("entrar");
+      showToast("Cadastro enviado! Aguarde aprovação do admin.");
+    } catch(e) {
+      setRegErr("Erro ao salvar: " + e.message);
+    }
   };
 
   const addToCart = (piece) => {
