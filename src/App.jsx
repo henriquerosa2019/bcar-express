@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { db } from "./firebase";
 import { ref, set, push, onValue, update, remove } from "firebase/database";
 import MapView from "./MapView";
+import * as XLSX from "xlsx";
 
 const BCAR_LOCATION = { lat: -22.9249, lng: -43.2373 };
 
@@ -171,6 +172,9 @@ export default function BcarExpress() {
   const [gpsCoords, setGpsCoords] = useState(null);
   const [gpsError, setGpsError]   = useState("");
   const [expandedMap, setExpandedMap] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const fileInputRef = useRef(null);
   const watchRef = useRef(null);
   const timerRef = useRef(null);
   const ordersRef = useRef(orders);
@@ -306,6 +310,37 @@ export default function BcarExpress() {
   const aprovar  = (id) => { update(ref(db,`users/${id}`),{status:"ativo"});   showToast("Aprovado!"); };
   const inativar = (id) => { update(ref(db,`users/${id}`),{status:"inativo"}); showToast("Inativado",true); };
   const reativar = (id) => { update(ref(db,`users/${id}`),{status:"ativo"});   showToast("Reativado!"); };
+
+  const importExcel = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const pecas = rows
+        .map(r => ({
+          nome:             String(r["Nome da Peça"]     || r["nome"]  || "").trim(),
+          marca:            String(r["Marca"]            || r["marca"] || "").trim(),
+          compatibilidade:  String(r["Compatibilidade"]  || r["compatibilidade"] || "").trim(),
+          preco:            parseFloat(r["Preço (R$)"]   || r["preco"] || 0),
+          estoque:          parseInt(r["Estoque (un)"]   || r["estoque"] || 0),
+        }))
+        .filter(p => p.nome && p.preco > 0);
+      if (pecas.length === 0) { setImportResult({ erro: "Nenhuma peça válida encontrada. Verifique o modelo." }); setImporting(false); return; }
+      for (const p of pecas) await push(ref(db, "stock"), p);
+      setImportResult({ ok: pecas.length });
+      showToast(pecas.length + " peças importadas!");
+    } catch(err) {
+      setImportResult({ erro: "Erro ao ler arquivo: " + err.message });
+    }
+    setImporting(false);
+    e.target.value = "";
+  };
+
 
   const savePeca = async () => {
     if (!pecaForm.nome||!pecaForm.preco||!pecaForm.estoque) { showToast("Preencha todos os campos",true); return; }
@@ -523,6 +558,18 @@ export default function BcarExpress() {
           <div style={{display:"flex",gap:10,marginBottom:14}}>
             <div className="search-wrap" style={{flex:1,marginBottom:0}}><span className="search-ico">🔍</span><input className="search-in" placeholder="Filtrar..." value={search} onChange={e=>setSearch(e.target.value)}/></div>
             <button className="btn btn-primary" style={{width:"auto",margin:0,padding:"0 18px",fontSize:13}} onClick={()=>{setEditPecaId(null);setPecaForm({nome:"",marca:"",compatibilidade:"",preco:"",estoque:""});setModal({type:"peca"})}}>+ Peça</button>
+            <button className="btn btn-ghost" style={{padding:"0 14px",fontSize:13,whiteSpace:"nowrap"}} onClick={()=>fileInputRef.current?.click()}>
+              {importing?"⏳ Importando...":"📥 Importar Excel"}
+            </button>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={importExcel}/>
+            {importResult&&!importResult.error&&(
+              <span style={{fontSize:12,color:"var(--green)",fontWeight:600}}>✓ {importResult.ok} peças adicionadas{importResult.skip>0?", "+importResult.skip+" ignoradas":""}</span>
+            )}
+            {importResult?.error&&<span style={{fontSize:12,color:"var(--red)"}}>Erro: {importResult.error}</span>}
+            <button className="btn btn-ghost" style={{width:"auto",margin:0,padding:"0 16px",fontSize:13,display:"flex",alignItems:"center",gap:6}} onClick={()=>fileInputRef.current?.click()}>
+              {importing?"⏳ Importando...":"📥 Importar Excel"}
+            </button>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={importExcel}/>
           </div>
           <div className="piece-list">
             {filtered.map(p=>{
